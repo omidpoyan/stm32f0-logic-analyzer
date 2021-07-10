@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,11 +39,37 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define DEBUG
 #define BUFFER_ZIZE 2000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+typedef enum{
+  STATE_STOP=0,
+  STATE_START,
+  STATE_ERROR
+} my_state_e;
+
+typedef enum{
+  MODE_LOGIC_ANALYZER=0,
+  MODE_OSILOSCOP
+} my_mode_e;
+
+typedef enum{
+  SWITCH_OFF=0,
+  SWITCH_ON
+}my_switch_e;
+
+typedef struct
+{
+  my_state_e state;
+  my_mode_e mode;
+  uint16_t cc;
+  uint8_t dataBuffer[BUFFER_ZIZE];
+  __IO int Index;
+}my_config_s;
+
 
 /* USER CODE END PM */
 
@@ -59,34 +86,101 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t testBuffer[BUFFER_ZIZE];
-__IO int Index=0;
-uint8_t C=0;
+my_config_s config={.Index=0,.cc=100,.mode=MODE_LOGIC_ANALYZER,.state=STATE_STOP};
+
+void ControlLED(uint8_t LED_Num,my_switch_e STATE)
+{
+  if(LED_Num==1)
+  {
+    switch (STATE)
+    {
+    case SWITCH_ON:
+      HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_SET);
+      break;
+    case SWITCH_OFF:
+      HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
+      break;
+    }
+  }
+  else if(LED_Num==2)
+  {
+    switch (STATE)
+    {
+    case SWITCH_ON:
+      HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_SET);
+      break;
+    case SWITCH_OFF:
+      HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_RESET);
+      break;
+    }
+  }
+}
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-  HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
-  Index=0;
-  if(C!='q')
-  {
-    HAL_TIM_Base_Start_IT(&htim17);
-    HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_SET);
-  }
+  ControlLED(1,SWITCH_OFF);
+  config.Index=0;
+  HAL_TIM_Base_Start_IT(&htim17);
+  ControlLED(2,SWITCH_ON);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if(Index<BUFFER_ZIZE)
+  if(config.Index<BUFFER_ZIZE)
   {
-    testBuffer[Index]=GPIOA->IDR;
-    Index++;
+    config.dataBuffer[config.Index] = GPIOA->IDR;
+    config.Index++;
   }
   else
   {
     HAL_TIM_Base_Stop_IT(&htim17);
-    HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_SET);
-    HAL_UART_Transmit_DMA(&huart1,testBuffer,BUFFER_ZIZE);
+
+    ControlLED(2,SWITCH_OFF);
+    ControlLED(1,SWITCH_ON);
+
+    HAL_UART_Transmit_DMA(&huart1,config.dataBuffer,BUFFER_ZIZE);
+  }
+}
+
+void Starting(void)
+{
+  ControlLED(1,SWITCH_ON);
+  HAL_Delay(200);
+  ControlLED(1,SWITCH_OFF);
+  ControlLED(2,SWITCH_ON);
+  HAL_Delay(200);
+  ControlLED(2,SWITCH_OFF);
+  #ifdef DEBUG
+  HAL_UART_Transmit(&huart1,(uint8_t*)"Starting\r\n",10,100);
+  #endif
+}
+
+void ControlSampling(my_switch_e ON_OFF)
+{
+  if(ON_OFF==SWITCH_ON)
+  {
+    config.Index=0;
+    HAL_TIM_Base_Start_IT(&htim17);
+  }
+  else
+  {
+    HAL_TIM_Base_Stop_IT(&htim17);
+    HAL_UART_DMAStop(&huart1);
+    __HAL_UART_CLEAR_IT(&huart1,UART_CLEAR_TCF);
+    ControlLED(1,SWITCH_OFF);
+    ControlLED(2,SWITCH_OFF);
+  }
+}
+
+void ControlTestPulse(my_switch_e ON_OFF)
+{
+  if(ON_OFF)
+  {
+    HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_4);
+  }
+  else
+  {
+    HAL_TIM_OC_Stop(&htim3,TIM_CHANNEL_4);
   }
 }
 /* USER CODE END 0 */
@@ -98,8 +192,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  uint8_t M=0,Buffer[8];
-  int CC=0;
+  uint8_t textBuffer[8],C;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -125,14 +218,11 @@ int main(void)
   MX_TIM17_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+
   //HAL_TIM_Base_Start_IT(&htim17);
   //HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_4);
-  HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_SET);
-  HAL_Delay(200);
-  HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_SET);
-  HAL_Delay(200);
-  HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_RESET);
+  Starting();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -143,44 +233,44 @@ int main(void)
     {
       if(C=='t')
       {
-        if(HAL_UART_Receive(&huart1,Buffer,5,1000)==HAL_OK)
+        if(HAL_UART_Receive(&huart1,textBuffer,5,1000)==HAL_OK)
         {
-          Buffer[6]='\0';
-          CC=atoi((char*)Buffer);
-          htim17.Instance->ARR=CC;
+          textBuffer[6]='\0';
+          config.cc=atoi((char*)textBuffer);
+          config.cc--;
+          htim17.Instance->ARR=config.cc;
         }
       }
       else if(C=='m')
       {
         if(HAL_UART_Receive(&huart1,&C,1,1000)==HAL_OK)
         {
-          if(C=='0')M=0;
-          else if(C=='1')M=1;
+          if(C=='0')config.mode=MODE_LOGIC_ANALYZER;
+          else if(C=='1')config.mode=MODE_OSILOSCOP;
         }
       }
       else if(C=='s')
       {
-        if(M==0)
+        if(config.mode==MODE_LOGIC_ANALYZER)
         {
-          Index=0;
-          HAL_TIM_Base_Start_IT(&htim17);
+          ControlSampling(SWITCH_ON);
         }
-        else if(M==1)
+        else if(config.mode==MODE_OSILOSCOP)
         {
           //
         }
       }
       else if(C=='q')
       {
-        HAL_TIM_Base_Stop_IT(&htim17);
+        ControlSampling(SWITCH_OFF);
       }
       else if(C=='h')
       {
-        HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_4);
+        ControlTestPulse(SWITCH_ON);
       }
       else if(C=='j')
       {
-        HAL_TIM_OC_Stop(&htim3,TIM_CHANNEL_4);
+        ControlTestPulse(SWITCH_OFF);
       }
     }
     /* USER CODE END WHILE */
