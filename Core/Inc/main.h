@@ -32,11 +32,41 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+
+#define BUFFER_ZIZE 2000
+
+typedef enum{
+  STATE_STOP=0,
+  STATE_START,
+  STATE_ERROR
+} my_state_e;
+
+typedef enum{
+  MODE_LOGIC_ANALYZER=0,
+  MODE_OSILOSCOP
+} my_mode_e;
+
+typedef enum{
+  SWITCH_OFF=0,
+  SWITCH_ON
+}my_switch_e;
+
+typedef struct
+{
+  my_state_e state;
+  my_mode_e mode;
+  uint16_t cc;
+  uint8_t dataBuffer[BUFFER_ZIZE];
+  __IO int Index;
+}my_config_s;
 
 /* USER CODE END ET */
 
@@ -63,6 +93,13 @@ void Error_Handler(void);
 #define LED2_Pin GPIO_PIN_1
 #define LED2_GPIO_Port GPIOF
 /* USER CODE BEGIN Private defines */
+
+#define COMMAIND_START              's'
+#define COMMAIND_STOP               'q'
+#define COMMAIND_GET_TIME           't'
+#define COMMAIND_GET_MODE           'm'
+#define COMMAIND_ENABLE_TEST_PULSE  'g'
+#define COMMAIND_DISABLE_TEST_PULSE 'h'
 
 /* USER CODE END Private defines */
 

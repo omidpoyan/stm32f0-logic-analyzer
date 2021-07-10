@@ -26,10 +26,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,36 +36,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define DEBUG
-#define BUFFER_ZIZE 2000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-typedef enum{
-  STATE_STOP=0,
-  STATE_START,
-  STATE_ERROR
-} my_state_e;
-
-typedef enum{
-  MODE_LOGIC_ANALYZER=0,
-  MODE_OSILOSCOP
-} my_mode_e;
-
-typedef enum{
-  SWITCH_OFF=0,
-  SWITCH_ON
-}my_switch_e;
-
-typedef struct
-{
-  my_state_e state;
-  my_mode_e mode;
-  uint16_t cc;
-  uint8_t dataBuffer[BUFFER_ZIZE];
-  __IO int Index;
-}my_config_s;
-
 
 /* USER CODE END PM */
 
@@ -160,6 +130,7 @@ void ControlSampling(my_switch_e ON_OFF)
   if(ON_OFF==SWITCH_ON)
   {
     config.Index=0;
+    config.state=STATE_START;
     HAL_TIM_Base_Start_IT(&htim17);
   }
   else
@@ -169,6 +140,7 @@ void ControlSampling(my_switch_e ON_OFF)
     __HAL_UART_CLEAR_IT(&huart1,UART_CLEAR_TCF);
     ControlLED(1,SWITCH_OFF);
     ControlLED(2,SWITCH_OFF);
+    config.state=STATE_STOP;
   }
 }
 
@@ -193,6 +165,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   uint8_t textBuffer[8],C;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -219,8 +192,6 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-  //HAL_TIM_Base_Start_IT(&htim17);
-  //HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_4);
   Starting();
 
   /* USER CODE END 2 */
@@ -231,7 +202,7 @@ int main(void)
   {
     if(HAL_UART_Receive(&huart1,&C,1,0xffff)==HAL_OK)
     {
-      if(C=='t')
+      if(C==COMMAIND_GET_TIME)
       {
         if(HAL_UART_Receive(&huart1,textBuffer,5,1000)==HAL_OK)
         {
@@ -241,7 +212,7 @@ int main(void)
           htim17.Instance->ARR=config.cc;
         }
       }
-      else if(C=='m')
+      else if(C==COMMAIND_GET_MODE)
       {
         if(HAL_UART_Receive(&huart1,&C,1,1000)==HAL_OK)
         {
@@ -249,7 +220,7 @@ int main(void)
           else if(C=='1')config.mode=MODE_OSILOSCOP;
         }
       }
-      else if(C=='s')
+      else if(C==COMMAIND_START)
       {
         if(config.mode==MODE_LOGIC_ANALYZER)
         {
@@ -260,15 +231,15 @@ int main(void)
           //
         }
       }
-      else if(C=='q')
+      else if(C==COMMAIND_STOP)
       {
         ControlSampling(SWITCH_OFF);
       }
-      else if(C=='h')
+      else if(C==COMMAIND_ENABLE_TEST_PULSE)
       {
         ControlTestPulse(SWITCH_ON);
       }
-      else if(C=='j')
+      else if(C==COMMAIND_DISABLE_TEST_PULSE)
       {
         ControlTestPulse(SWITCH_OFF);
       }
