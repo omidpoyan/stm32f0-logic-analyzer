@@ -64,6 +64,7 @@ typedef struct
   my_state_e state;
   my_mode_e mode;
   uint16_t cc;
+  uint8_t adcSamplingTime;
   uint8_t dataBuffer[BUFFER_ZIZE];
   __IO int Index;
 }my_config_s;
@@ -94,12 +95,13 @@ void Error_Handler(void);
 #define LED2_GPIO_Port GPIOF
 /* USER CODE BEGIN Private defines */
 
-#define COMMAIND_START              's'
-#define COMMAIND_STOP               'q'
-#define COMMAIND_GET_TIME           't'
-#define COMMAIND_GET_MODE           'm'
-#define COMMAIND_ENABLE_TEST_PULSE  'g'
-#define COMMAIND_DISABLE_TEST_PULSE 'h'
+#define COMMAND_START              's'
+#define COMMAND_STOP               'q'
+#define COMMAND_GET_TIME           't'
+#define COMMAND_GET_MODE           'm'
+#define COMMAND_GET_ADC_STIME      'a'
+#define COMMAND_ENABLE_TEST_PULSE  'g'
+#define COMMAND_DISABLE_TEST_PULSE 'h'
 
 /* USER CODE END Private defines */
 

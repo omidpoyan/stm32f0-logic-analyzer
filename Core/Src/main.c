@@ -59,7 +59,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-my_config_s config={.Index=0,.cc=100,.mode=MODE_LOGIC_ANALYZER,.state=STATE_STOP};
+my_config_s config={.Index=0,.cc=100,.adcSamplingTime=0,.mode=MODE_LOGIC_ANALYZER,.state=STATE_STOP};
 
 void ControlLED(uint8_t LED_Num,my_switch_e STATE)
 {
@@ -107,7 +107,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     config.Index=0;
     HAL_TIM_Base_Start_IT(&htim17);
   }
-  else if(config.mode==MODE_OSILOSCOP)
+  else if(config.mode==MODE_OSILOSCOP && config.state==STATE_START)
   {
     HAL_ADC_Start_DMA(&hadc,config.dataBuffer,BUFFER_ZIZE);
   }
@@ -180,12 +180,57 @@ void ControlADCSampling(my_switch_e ON_OFF)
   if(ON_OFF)
   {
     HAL_ADC_Start_DMA(&hadc,config.dataBuffer,BUFFER_ZIZE);
+    config.state=STATE_START;
   }
   else
   {
     HAL_ADC_Stop_DMA(&hadc);
+    HAL_UART_DMAStop(&huart1);
+    __HAL_UART_CLEAR_IT(&huart1,UART_CLEAR_TCF);
+    ControlLED(1,SWITCH_OFF);
+    ControlLED(2,SWITCH_OFF);
+    config.state=STATE_STOP;
   }
 }
+
+void UpdateADCSampleingTime(uint8_t ST)
+{
+  ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_9;
+  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
+
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+
+  switch(ST)
+  {
+    case 0:sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;break;
+    case 1:sConfig.SamplingTime = ADC_SAMPLETIME_7CYCLES_5;break;
+    case 2:sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;break;
+    case 3:sConfig.SamplingTime = ADC_SAMPLETIME_28CYCLES_5;break;
+    case 4:sConfig.SamplingTime = ADC_SAMPLETIME_41CYCLES_5;break;
+    case 5:sConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;break;
+    case 6:sConfig.SamplingTime = ADC_SAMPLETIME_71CYCLES_5;break;
+    case 7:sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;break;
+  }
+
+  if(config.state==STATE_START)
+  {
+    ControlADCSampling(SWITCH_OFF);
+    if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    ControlADCSampling(SWITCH_ON);
+  }
+  else
+  {
+    if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -196,7 +241,6 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   uint8_t textBuffer[8],C;
-  int value=0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -233,24 +277,16 @@ int main(void)
   {
     if(HAL_UART_Receive(&huart1,&C,1,0xffff)==HAL_OK)
     {
-      if(C==COMMAIND_GET_TIME)
+      if(C==COMMAND_GET_TIME)
       {
         if(HAL_UART_Receive(&huart1,textBuffer,5,1000)==HAL_OK)
         {
           textBuffer[6]='\0';
-          value=atoi((char*)textBuffer);
-          if(config.mode==MODE_LOGIC_ANALYZER)
-          {
-            config.cc=value-1;
-            htim17.Instance->ARR=config.cc;
-          }
-          else
-          {
-            
-          }
+          config.cc=atoi((char*)textBuffer);
+          htim17.Instance->ARR=config.cc-1;
         }
       }
-      else if(C==COMMAIND_GET_MODE)
+      else if(C==COMMAND_GET_MODE)
       {
         if(HAL_UART_Receive(&huart1,&C,1,1000)==HAL_OK)
         {
@@ -258,7 +294,18 @@ int main(void)
           else if(C=='1')config.mode=MODE_OSILOSCOP;
         }
       }
-      else if(C==COMMAIND_START)
+      else if(C==COMMAND_GET_ADC_STIME)
+      {
+        if(HAL_UART_Receive(&huart1,&C,1,1000)==HAL_OK)
+        {
+          if(C>='0' && C <='9')
+          {
+            config.adcSamplingTime = C-'0';
+            UpdateADCSampleingTime(config.adcSamplingTime);
+          }
+        }
+      }
+      else if(C==COMMAND_START)
       {
         if(config.mode==MODE_LOGIC_ANALYZER)
         {
@@ -269,16 +316,16 @@ int main(void)
           ControlADCSampling(SWITCH_ON);
         }
       }
-      else if(C==COMMAIND_STOP)
+      else if(C==COMMAND_STOP)
       {
         ControlLogicSampling(SWITCH_OFF);
         ControlADCSampling(SWITCH_OFF);
       }
-      else if(C==COMMAIND_ENABLE_TEST_PULSE)
+      else if(C==COMMAND_ENABLE_TEST_PULSE)
       {
         ControlLogicTestPulse(SWITCH_ON);
       }
-      else if(C==COMMAIND_DISABLE_TEST_PULSE)
+      else if(C==COMMAND_DISABLE_TEST_PULSE)
       {
         ControlLogicTestPulse(SWITCH_OFF);
       }
