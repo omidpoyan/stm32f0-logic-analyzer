@@ -91,8 +91,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED1_Pin GPIO_PIN_0
 #define LED1_GPIO_Port GPIOF
-#define LED2_Pin GPIO_PIN_1
-#define LED2_GPIO_Port GPIOF
+#define TestSignal_Pin GPIO_PIN_1
+#define TestSignal_GPIO_Port GPIOF
 /* USER CODE BEGIN Private defines */
 
 #define COMMAND_START              's'
