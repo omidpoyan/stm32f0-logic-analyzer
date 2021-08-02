@@ -199,4 +199,4 @@ clean:
 # *** EOF ***
 
 flash:
-	ST-LINK_CLI.exe -c SWD HOTPLUG -P ./$(BUILD_DIR)/$(TARGET).hex -V -HardRst
+	ST-LINK_CLI -c SWD HOTPLUG -P ./$(BUILD_DIR)/$(TARGET).hex -V -HardRst
