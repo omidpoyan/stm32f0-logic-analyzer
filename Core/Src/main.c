@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "dma.h"
 #include "tim.h"
 #include "usart.h"
@@ -26,11 +27,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stm32f0xx_hal_adc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+extern ADC_HandleTypeDef hadc;
+extern DMA_HandleTypeDef hdma_adc;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -56,76 +59,75 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-my_config_s config={.Index=0,.cc=100,.mode=MODE_LOGIC_ANALYZER,.state=STATE_STOP};
+my_config_s config={.Index=0,.cc=100,.adcSamplingTime=0,.mode=MODE_LOGIC_ANALYZER,.state=STATE_STOP};
 
-void ControlLED(uint8_t LED_Num,my_switch_e STATE)
+void ControlLED(my_switch_e STATE)
 {
-  if(LED_Num==1)
+  switch (STATE)
   {
-    switch (STATE)
-    {
-    case SWITCH_ON:
-      HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_SET);
-      break;
-    case SWITCH_OFF:
-      HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
-      break;
-    }
+  case SWITCH_ON:
+    HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_SET);
+    break;
+  case SWITCH_OFF:
+    HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
+    break;
   }
-  else if(LED_Num==2)
-  {
-    switch (STATE)
-    {
-    case SWITCH_ON:
-      HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_SET);
-      break;
-    case SWITCH_OFF:
-      HAL_GPIO_WritePin(LED2_GPIO_Port,LED2_Pin,GPIO_PIN_RESET);
-      break;
-    }
-  }
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+  ControlLED(SWITCH_OFF);
+  HAL_UART_Transmit_DMA(&huart1,config.dataBuffer,BUFFER_ZIZE);
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-  ControlLED(1,SWITCH_OFF);
-  config.Index=0;
-  HAL_TIM_Base_Start_IT(&htim17);
-  ControlLED(2,SWITCH_ON);
+  ControlLED(SWITCH_ON);
+
+  if(config.mode==MODE_LOGIC_ANALYZER)
+  {
+    config.Index=0;
+    HAL_TIM_Base_Start_IT(&htim17);
+  }
+  else if(config.mode==MODE_OSILOSCOP && config.state==STATE_START)
+  {
+    HAL_ADC_Start_DMA(&hadc,config.dataBuffer,BUFFER_ZIZE);
+  }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if(config.Index<BUFFER_ZIZE)
+  if(htim->Instance == TIM17)
   {
-    config.dataBuffer[config.Index] = GPIOA->IDR;
-    config.Index++;
+    if(config.Index<BUFFER_ZIZE)
+    {
+      config.dataBuffer[config.Index] = GPIOA->IDR;
+      config.Index++;
+    }
+    else
+    {
+      HAL_TIM_Base_Stop_IT(&htim17);
+      ControlLED(SWITCH_OFF);
+      HAL_UART_Transmit_DMA(&huart1,config.dataBuffer,BUFFER_ZIZE);
+    }
   }
   else
   {
-    HAL_TIM_Base_Stop_IT(&htim17);
-
-    ControlLED(2,SWITCH_OFF);
-    ControlLED(1,SWITCH_ON);
-
-    HAL_UART_Transmit_DMA(&huart1,config.dataBuffer,BUFFER_ZIZE);
+    HAL_GPIO_TogglePin(TestSignal_GPIO_Port,TestSignal_Pin);
   }
 }
 
 void Starting(void)
 {
-  ControlLED(1,SWITCH_ON);
+  ControlLED(SWITCH_ON);
   HAL_Delay(200);
-  ControlLED(1,SWITCH_OFF);
-  ControlLED(2,SWITCH_ON);
-  HAL_Delay(200);
-  ControlLED(2,SWITCH_OFF);
+  ControlLED(SWITCH_OFF);
   #ifdef DEBUG
   HAL_UART_Transmit(&huart1,(uint8_t*)"Starting\r\n",10,100);
   #endif
 }
 
-void ControlSampling(my_switch_e ON_OFF)
+void ControlLogicSampling(my_switch_e ON_OFF)
 {
   if(ON_OFF==SWITCH_ON)
   {
@@ -138,23 +140,81 @@ void ControlSampling(my_switch_e ON_OFF)
     HAL_TIM_Base_Stop_IT(&htim17);
     HAL_UART_DMAStop(&huart1);
     __HAL_UART_CLEAR_IT(&huart1,UART_CLEAR_TCF);
-    ControlLED(1,SWITCH_OFF);
-    ControlLED(2,SWITCH_OFF);
+    ControlLED(SWITCH_OFF);
     config.state=STATE_STOP;
   }
 }
 
-void ControlTestPulse(my_switch_e ON_OFF)
+void ControlLogicTestPulse(my_switch_e ON_OFF)
 {
   if(ON_OFF)
   {
-    HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_4);
+    //HAL_TIM_OC_Start(&htim3,TIM_CHANNEL_4);
+    HAL_TIM_Base_Start_IT(&htim3);
   }
   else
   {
-    HAL_TIM_OC_Stop(&htim3,TIM_CHANNEL_4);
+    //HAL_TIM_OC_Stop(&htim3,TIM_CHANNEL_4);
+    HAL_TIM_Base_Stop_IT(&htim3);
+    HAL_GPIO_WritePin(TestSignal_GPIO_Port,TestSignal_Pin,GPIO_PIN_RESET);
   }
 }
+
+void ControlADCSampling(my_switch_e ON_OFF)
+{
+  if(ON_OFF)
+  {
+    HAL_ADC_Start_DMA(&hadc,config.dataBuffer,BUFFER_ZIZE);
+    config.state=STATE_START;
+  }
+  else
+  {
+    HAL_ADC_Stop_DMA(&hadc);
+    HAL_UART_DMAStop(&huart1);
+    __HAL_UART_CLEAR_IT(&huart1,UART_CLEAR_TCF);
+    ControlLED(SWITCH_OFF);
+    config.state=STATE_STOP;
+  }
+}
+
+void UpdateADCSampleingTime(uint8_t ST)
+{
+  ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_9;
+  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
+
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+
+  switch(ST)
+  {
+    case 0:sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;break;
+    case 1:sConfig.SamplingTime = ADC_SAMPLETIME_7CYCLES_5;break;
+    case 2:sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;break;
+    case 3:sConfig.SamplingTime = ADC_SAMPLETIME_28CYCLES_5;break;
+    case 4:sConfig.SamplingTime = ADC_SAMPLETIME_41CYCLES_5;break;
+    case 5:sConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;break;
+    case 6:sConfig.SamplingTime = ADC_SAMPLETIME_71CYCLES_5;break;
+    case 7:sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;break;
+  }
+
+  if(config.state==STATE_START)
+  {
+    ControlADCSampling(SWITCH_OFF);
+    if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    ControlADCSampling(SWITCH_ON);
+  }
+  else
+  {
+    if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -165,7 +225,6 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   uint8_t textBuffer[8],C;
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -189,6 +248,7 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_TIM17_Init();
+  MX_ADC_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
@@ -202,17 +262,16 @@ int main(void)
   {
     if(HAL_UART_Receive(&huart1,&C,1,0xffff)==HAL_OK)
     {
-      if(C==COMMAIND_GET_TIME)
+      if(C==COMMAND_GET_TIME)
       {
         if(HAL_UART_Receive(&huart1,textBuffer,5,1000)==HAL_OK)
         {
           textBuffer[6]='\0';
           config.cc=atoi((char*)textBuffer);
-          config.cc--;
-          htim17.Instance->ARR=config.cc;
+          htim17.Instance->ARR=config.cc-1;
         }
       }
-      else if(C==COMMAIND_GET_MODE)
+      else if(C==COMMAND_GET_MODE)
       {
         if(HAL_UART_Receive(&huart1,&C,1,1000)==HAL_OK)
         {
@@ -220,28 +279,41 @@ int main(void)
           else if(C=='1')config.mode=MODE_OSILOSCOP;
         }
       }
-      else if(C==COMMAIND_START)
+      else if(C==COMMAND_GET_ADC_STIME)
+      {
+        if(HAL_UART_Receive(&huart1,&C,1,1000)==HAL_OK)
+        {
+          if(C>='0' && C <='9')
+          {
+            config.adcSamplingTime = C-'0';
+            UpdateADCSampleingTime(config.adcSamplingTime);
+          }
+        }
+      }
+      else if(C==COMMAND_START)
       {
         if(config.mode==MODE_LOGIC_ANALYZER)
         {
-          ControlSampling(SWITCH_ON);
+          ControlLogicSampling(SWITCH_ON);
         }
         else if(config.mode==MODE_OSILOSCOP)
         {
-          //
+          ControlADCSampling(SWITCH_ON);
         }
       }
-      else if(C==COMMAIND_STOP)
+      else if(C==COMMAND_STOP)
       {
-        ControlSampling(SWITCH_OFF);
+        ControlLogicSampling(SWITCH_OFF);
+        ControlADCSampling(SWITCH_OFF);
+        ControlLogicTestPulse(SWITCH_OFF);
       }
-      else if(C==COMMAIND_ENABLE_TEST_PULSE)
+      else if(C==COMMAND_ENABLE_TEST_PULSE)
       {
-        ControlTestPulse(SWITCH_ON);
+        ControlLogicTestPulse(SWITCH_ON);
       }
-      else if(C==COMMAIND_DISABLE_TEST_PULSE)
+      else if(C==COMMAND_DISABLE_TEST_PULSE)
       {
-        ControlTestPulse(SWITCH_OFF);
+        ControlLogicTestPulse(SWITCH_OFF);
       }
     }
     /* USER CODE END WHILE */
